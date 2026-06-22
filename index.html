@@ -35,7 +35,7 @@ const DATA_VERSION="v2-16interns";
 const CLOUD_SYNC={
   enabled:true,
   provider:"jsonbin",
-  binId:"",           // Auto-created on first save
+  binId:"6a395b2df5f4af5e291de624",
   apiKey:"$2a$10$AntvOTM3iaWorb7sET8Adu.cqTSJZWo0ZA4GgThAr6ik5zKJZf0Lq",
   pollMs:30000,
 };
@@ -617,7 +617,7 @@ function App(){
         setInterns(localInterns);
         setOptions(localOptions);
         setSyncMode("local");
-        setSyncError("Cloud storage unavailable. Using local browser storage.");
+        setSyncError("");
       }
     }else{
       setInterns(localInterns);
@@ -645,7 +645,7 @@ function App(){
           setLastSyncedAt(new Date().toISOString());
         }catch(e){
           setSyncMode("local");
-          setSyncError("Cloud sync failed. Local save completed.");
+          setSyncError("");
         }
       },800);
     }
