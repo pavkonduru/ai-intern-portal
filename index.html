@@ -32,10 +32,9 @@ const DEFAULT_PIN="2026";
 const CLOUD_SYNC={
   enabled:true,
   provider:"jsonbin",
-  // ── PASTE YOUR JSONBin CREDENTIALS HERE ──
-  binId:"",           // Will be auto-created on first save if empty
-  apiKey:"",          // X-Master-Key from https://jsonbin.io → API Keys
-  pollMs:30000,       // Refresh interval (30 seconds)
+  binId:"",           // Auto-created on first save
+  apiKey:"$2a$10$AntvOTM3iaWorb7sET8Adu.cqTSJZWo0ZA4GgThAr6ik5zKJZf0Lq",
+  pollMs:30000,
 };
 
 const isCloudEnabled=()=>CLOUD_SYNC.enabled&&CLOUD_SYNC.apiKey&&CLOUD_SYNC.apiKey.length>10;
