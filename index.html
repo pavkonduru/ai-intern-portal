@@ -53,7 +53,6 @@ const loadCloudPayload=async()=>{
 const saveCloudPayload=async(payload)=>{
   if(!isCloudEnabled())return;
   if(CLOUD_SYNC.binId){
-    // Update existing bin
     const r=await fetch(`https://api.jsonbin.io/v3/b/${CLOUD_SYNC.binId}`,{
       method:"PUT",
       headers:{"Content-Type":"application/json","X-Master-Key":CLOUD_SYNC.apiKey},
@@ -61,7 +60,6 @@ const saveCloudPayload=async(payload)=>{
     });
     if(!r.ok)throw new Error(`JSONBin update failed (HTTP ${r.status})`);
   }else{
-    // Create new bin (first time only)
     const r=await fetch("https://api.jsonbin.io/v3/b",{
       method:"POST",
       headers:{"Content-Type":"application/json","X-Master-Key":CLOUD_SYNC.apiKey,
@@ -71,7 +69,6 @@ const saveCloudPayload=async(payload)=>{
     if(!r.ok)throw new Error(`JSONBin create failed (HTTP ${r.status})`);
     const j=await r.json();
     CLOUD_SYNC.binId=j.metadata.id;
-    // Store binId in localStorage so it persists across reloads
     try{localStorage.setItem("jsonbin-bin-id",j.metadata.id)}catch(e){}
     console.log("JSONBin created — binId:",j.metadata.id,"← save this in CLOUD_SYNC.binId for permanence");
   }
