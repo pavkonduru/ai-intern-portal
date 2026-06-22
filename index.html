@@ -27,6 +27,9 @@ const OK="deloitte-intern-options-v1";
 const PIN_KEY="deloitte-intern-admin-pin";
 const AUTH_KEY="deloitte-intern-auth";
 const DEFAULT_PIN="2026";
+const DATA_VERSION="v2-16interns";
+// Force reset stale localStorage if version mismatch
+(()=>{try{if(localStorage.getItem("portal-data-version")!==DATA_VERSION){localStorage.removeItem(SK);localStorage.removeItem(OK);localStorage.removeItem("jsonbin-bin-id");localStorage.setItem("portal-data-version",DATA_VERSION)}}catch(e){}})();
 
 /* ══════════ SHARED STORAGE CONFIG (JSONBin.io) ══════════ */
 const CLOUD_SYNC={
