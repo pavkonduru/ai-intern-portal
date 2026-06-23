@@ -8,6 +8,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;}
   body{font-family:'Open Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F5F5F5;color:#282728;zoom:0.85;}
@@ -28,57 +30,58 @@ const PIN_KEY="deloitte-intern-admin-pin";
 const AUTH_KEY="deloitte-intern-auth";
 const DEFAULT_PIN="2026";
 const DATA_VERSION="v2-16interns";
+const PROGRAM_MANAGER_EMAILS=[
+  "atadepalli@deloitte.com",
+  "psameer@deloitte.com",
+  "pavkonduru@deloitte.com",
+  "srajamane@deloitte.com",
+  "navyar@deloitte.com",
+];
 // Force reset stale localStorage if version mismatch
 (()=>{try{if(localStorage.getItem("portal-data-version")!==DATA_VERSION){localStorage.removeItem(SK);localStorage.removeItem(OK);localStorage.removeItem("jsonbin-bin-id");localStorage.setItem("portal-data-version",DATA_VERSION)}}catch(e){}})();
 
-/* ══════════ SHARED STORAGE CONFIG (JSONBin.io) ══════════ */
+/* ══════════ SHARED STORAGE CONFIG (Firebase) ══════════ */
 const CLOUD_SYNC={
   enabled:true,
-  provider:"jsonbin",
-  binId:"6a395b2df5f4af5e291de624",
-  apiKey:"$2a$10$AntvOTM3iaWorb7sET8Adu.cqTSJZWo0ZA4GgThAr6ik5zKJZf0Lq",
+  provider:"firebase",
   pollMs:30000,
 };
 
-const isCloudEnabled=()=>CLOUD_SYNC.enabled&&CLOUD_SYNC.apiKey&&CLOUD_SYNC.apiKey.length>10;
+// Replace values below with your Firebase web app config.
+const FIREBASE_CONFIG={
+  apiKey:"",
+  authDomain:"",
+  databaseURL:"",
+  projectId:"",
+  storageBucket:"",
+  messagingSenderId:"",
+  appId:"",
+};
+
+let fbDb=null;
+try{
+  if(window.firebase&&FIREBASE_CONFIG.apiKey&&FIREBASE_CONFIG.databaseURL){
+    if(!firebase.apps.length)firebase.initializeApp(FIREBASE_CONFIG);
+    fbDb=firebase.database();
+  }
+}catch(e){
+  fbDb=null;
+}
+
+const isCloudEnabled=()=>CLOUD_SYNC.enabled&&!!fbDb;
 
 const loadCloudPayload=async()=>{
-  if(!isCloudEnabled()||!CLOUD_SYNC.binId)return null;
-  const r=await fetch(`https://api.jsonbin.io/v3/b/${CLOUD_SYNC.binId}/latest`,{
-    headers:{"X-Master-Key":CLOUD_SYNC.apiKey,"X-Bin-Meta":false}
-  });
-  if(!r.ok)throw new Error(`JSONBin read failed (HTTP ${r.status})`);
-  const data=await r.json();
+  if(!isCloudEnabled())return null;
+  const snap=await fbDb.ref("portalData/v1").once("value");
+  const data=snap.val();
   if(!data||!Array.isArray(data.interns)||!data.options)return null;
   return data;
 };
 
 const saveCloudPayload=async(payload)=>{
   if(!isCloudEnabled())return;
-  if(CLOUD_SYNC.binId){
-    const r=await fetch(`https://api.jsonbin.io/v3/b/${CLOUD_SYNC.binId}`,{
-      method:"PUT",
-      headers:{"Content-Type":"application/json","X-Master-Key":CLOUD_SYNC.apiKey},
-      body:JSON.stringify(payload)
-    });
-    if(!r.ok)throw new Error(`JSONBin update failed (HTTP ${r.status})`);
-  }else{
-    const r=await fetch("https://api.jsonbin.io/v3/b",{
-      method:"POST",
-      headers:{"Content-Type":"application/json","X-Master-Key":CLOUD_SYNC.apiKey,
-        "X-Bin-Name":"AIInternPortalData","X-Bin-Private":true},
-      body:JSON.stringify(payload)
-    });
-    if(!r.ok)throw new Error(`JSONBin create failed (HTTP ${r.status})`);
-    const j=await r.json();
-    CLOUD_SYNC.binId=j.metadata.id;
-    try{localStorage.setItem("jsonbin-bin-id",j.metadata.id)}catch(e){}
-    console.log("JSONBin created — binId:",j.metadata.id,"← save this in CLOUD_SYNC.binId for permanence");
-  }
+  await fbDb.ref("portalData/v1").set(payload);
 };
-
-// On load, try to restore binId from localStorage if not hardcoded
-(()=>{try{if(!CLOUD_SYNC.binId){const id=localStorage.getItem("jsonbin-bin-id");if(id)CLOUD_SYNC.binId=id}}catch(e){}})();
 
 /* ══════════ MANAGED OPTIONS DEFAULTS ══════════ */
 const DEFAULT_OPTIONS = {
@@ -658,9 +661,19 @@ const InternDashboard=({intern,onSave,onLogout})=>{
 
 /* ══════════ ADMIN LOGIN ══════════ */
 const AdminLogin=({onLogin,onClose})=>{
-  const [pin,setPin]=useState("");const [err,setErr]=useState("");
-  const check=()=>{let sp;try{sp=localStorage.getItem(PIN_KEY)}catch(e){}if(pin===(sp||DEFAULT_PIN)){try{localStorage.setItem(AUTH_KEY,"admin")}catch(e){}onLogin()}else setErr("Incorrect PIN.")};
-  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:300,display:"flex",justifyContent:"center",alignItems:"center"}}><div style={{background:"#fff",borderRadius:12,width:380,boxShadow:"0 8px 32px rgba(0,0,0,0.2)"}}><div style={{background:"#282728",padding:"18px 24px",borderRadius:"12px 12px 0 0"}}><div style={{color:"#fff",fontSize:16,fontWeight:700}}>🔒 Program Manager Access</div><div style={{color:"#A0A0A0",fontSize:11,marginTop:2}}>Enter PIN to unlock program management</div></div><div style={{padding:24}}><div style={{fontSize:12,color:"#555",marginBottom:12}}>Only program managers can modify data. Leadership can browse in read-only mode.</div><input type="password" value={pin} onChange={e=>setPin(e.target.value)} onKeyDown={e=>e.key==="Enter"&&check()} placeholder="Enter PIN" maxLength={10} style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid #E6E6E6",fontSize:15,textAlign:"center",letterSpacing:"0.3em",boxSizing:"border-box"}} autoFocus/>{err&&<div style={{fontSize:12,color:"#DA291C",marginTop:8,textAlign:"center"}}>{err}</div>}</div><div style={{padding:"12px 24px 20px",display:"flex",justifyContent:"flex-end",gap:10,borderTop:"1px solid #E6E6E6"}}><button onClick={onClose} style={{padding:"8px 20px",background:"#F5F5F5",border:"1px solid #E6E6E6",borderRadius:6,fontSize:13,cursor:"pointer"}}>Leadership View</button><button onClick={check} style={{padding:"8px 20px",background:"#86BC25",color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:700,cursor:"pointer"}}>Unlock</button></div></div></div>;
+  const [email,setEmail]=useState("");
+  const [pin,setPin]=useState("");
+  const [err,setErr]=useState("");
+  const check=()=>{
+    const em=email.trim().toLowerCase();
+    let sp;
+    try{sp=localStorage.getItem(PIN_KEY)}catch(e){}
+    if(!PROGRAM_MANAGER_EMAILS.includes(em)){setErr("This email is not in the Program Manager access list.");return}
+    if(pin!==(sp||DEFAULT_PIN)){setErr("Incorrect PIN.");return}
+    try{localStorage.setItem(AUTH_KEY,em)}catch(e){}
+    onLogin();
+  };
+  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:300,display:"flex",justifyContent:"center",alignItems:"center"}}><div style={{background:"#fff",borderRadius:12,width:420,boxShadow:"0 8px 32px rgba(0,0,0,0.2)"}}><div style={{background:"#282728",padding:"18px 24px",borderRadius:"12px 12px 0 0"}}><div style={{color:"#fff",fontSize:16,fontWeight:700}}>🔒 Program Manager Access</div><div style={{color:"#A0A0A0",fontSize:11,marginTop:2}}>Program manager email + PIN required</div></div><div style={{padding:24}}><div style={{fontSize:12,color:"#555",marginBottom:12}}>Only approved Program Manager emails can unlock edit access. Leadership can browse in read-only mode.</div><label style={{fontSize:11,color:"#555",fontWeight:600,display:"block",marginBottom:4,textTransform:"uppercase"}}>Program Manager Email</label><input type="email" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&check()} placeholder="yourname@deloitte.com" style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #E6E6E6",fontSize:13,boxSizing:"border-box",marginBottom:10}} autoFocus/><label style={{fontSize:11,color:"#555",fontWeight:600,display:"block",marginBottom:4,textTransform:"uppercase"}}>Program PIN</label><input type="password" value={pin} onChange={e=>setPin(e.target.value)} onKeyDown={e=>e.key==="Enter"&&check()} placeholder="Enter PIN" maxLength={10} style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid #E6E6E6",fontSize:15,textAlign:"center",letterSpacing:"0.3em",boxSizing:"border-box"}}/>{err&&<div style={{fontSize:12,color:"#DA291C",marginTop:8}}>{err}</div>}</div><div style={{padding:"12px 24px 20px",display:"flex",justifyContent:"flex-end",gap:10,borderTop:"1px solid #E6E6E6"}}><button onClick={onClose} style={{padding:"8px 20px",background:"#F5F5F5",border:"1px solid #E6E6E6",borderRadius:6,fontSize:13,cursor:"pointer"}}>Leadership View</button><button onClick={check} style={{padding:"8px 20px",background:"#86BC25",color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:700,cursor:"pointer"}}>Unlock</button></div></div></div>;
 };
 
 const ChangePinModal=({onClose})=>{
@@ -890,7 +903,12 @@ function App(){
   const saveDebounceRef=useRef(null);
   const toggleSort=(field)=>setSort(prev=>({field,asc:prev.field===field?!prev.asc:true}));
 
-  useEffect(()=>{try{if(localStorage.getItem(AUTH_KEY)==="admin")setIsAdmin(true)}catch(e){}},[]);
+  useEffect(()=>{
+    try{
+      const em=(localStorage.getItem(AUTH_KEY)||"").toLowerCase();
+      if(PROGRAM_MANAGER_EMAILS.includes(em))setIsAdmin(true);
+    }catch(e){}
+  },[]);
   // Restore intern session
   useEffect(()=>{
     if(!loaded)return;
