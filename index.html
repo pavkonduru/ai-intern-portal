@@ -352,6 +352,255 @@ const CSVImportModal=({mode,onImport,onClose,options})=>{
   </div>;
 };
 
+/* ══════════ INTERN LOGIN ══════════ */
+const InternLogin=({interns,onLogin,onClose})=>{
+  const [email,setEmail]=useState("");
+  const [err,setErr]=useState("");
+  const check=()=>{
+    const em=email.trim().toLowerCase();
+    if(!em){setErr("Please enter your Deloitte email.");return}
+    const match=interns.find(i=>(i.email||"").toLowerCase()===em);
+    if(match){
+      try{localStorage.setItem("intern-auth-email",em)}catch(e){}
+      onLogin(match);
+    } else {
+      setErr("Email not found in the intern roster. Contact your program manager.");
+    }
+  };
+  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:300,display:"flex",justifyContent:"center",alignItems:"center"}}>
+    <div style={{background:"#fff",borderRadius:12,width:420,boxShadow:"0 8px 32px rgba(0,0,0,0.2)"}}>
+      <div style={{background:"linear-gradient(135deg,#282728,#3a3a3a)",padding:"24px",borderRadius:"12px 12px 0 0",textAlign:"center"}}>
+        <div style={{fontSize:32,marginBottom:8}}>👤</div>
+        <div style={{color:"#fff",fontSize:17,fontWeight:700}}>Intern Self-Service Portal</div>
+        <div style={{color:"#86EB22",fontSize:12,marginTop:4}}>AI & Data Talent Development Program</div>
+      </div>
+      <div style={{padding:24}}>
+        <div style={{fontSize:12,color:"#555",marginBottom:16,lineHeight:1.6}}>Enter your Deloitte email to access your personal dashboard — update your goals, submit weekly status updates, and track your progress.</div>
+        <label style={{fontSize:11,color:"#555",fontWeight:600,display:"block",marginBottom:4,textTransform:"uppercase"}}>Your Deloitte Email</label>
+        <input type="email" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&check()} placeholder="yourname@deloitte.com" style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid #E6E6E6",fontSize:14,boxSizing:"border-box"}} autoFocus/>
+        {err&&<div style={{fontSize:12,color:"#DA291C",marginTop:8}}>{err}</div>}
+      </div>
+      <div style={{padding:"12px 24px 20px",display:"flex",justifyContent:"flex-end",gap:10,borderTop:"1px solid #E6E6E6"}}>
+        <button onClick={onClose} style={{padding:"8px 20px",background:"#F5F5F5",border:"1px solid #E6E6E6",borderRadius:6,fontSize:13,cursor:"pointer"}}>Cancel</button>
+        <button onClick={check} style={{padding:"8px 20px",background:"#86BC25",color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:700,cursor:"pointer"}}>Access My Dashboard →</button>
+      </div>
+    </div>
+  </div>;
+};
+
+/* ══════════ INTERN SELF-SERVICE DASHBOARD ══════════ */
+const InternDashboard=({intern,onSave,onLogout})=>{
+  const [view,setView]=useState("home"); // home | goal | update | history
+  const [goalForm,setGoalForm]=useState({
+    primaryGoal: intern.goal||"",
+    milestone1:"", milestone1Due:"",
+    milestone2:"", milestone2Due:"",
+    successLooks:"",
+    goalStatus: intern.goalStatus||"TBD",
+  });
+  const [updateForm,setUpdateForm]=useState({
+    workArea:"", workDetail:"",
+    trainingStatus:"", trainingDetail:"",
+    hasBlocker:"No", blockerDetail:"",
+    nextWeekPlan:"",
+    goalProgress: intern.goalStatus||"On Track",
+  });
+  const [saved,setSaved]=useState(false);
+  const [updateSaved,setUpdateSaved]=useState(false);
+
+  const d=dr(intern.endDate);
+  const progress=pct(intern.startDate,intern.endDate);
+  const lastUpdate=(intern.weeklyUpdates||[]).length>0?intern.weeklyUpdates[intern.weeklyUpdates.length-1]:null;
+  const daysSince=lastUpdate?Math.ceil((new Date()-new Date(lastUpdate.date))/864e5):999;
+  const updateDue=daysSince>=7;
+
+  const saveGoal=()=>{
+    const combined=goalForm.primaryGoal+(goalForm.milestone1?`\n\nMilestone 1: ${goalForm.milestone1}${goalForm.milestone1Due?` (by ${goalForm.milestone1Due})`:""}`:"")+
+      (goalForm.milestone2?`\n\nMilestone 2: ${goalForm.milestone2}${goalForm.milestone2Due?` (by ${goalForm.milestone2Due})`:""}`:"")+
+      (goalForm.successLooks?`\n\nSuccess: ${goalForm.successLooks}`:"");
+    onSave({...intern, goal:combined, goalStatus:goalForm.goalStatus});
+    setSaved(true); setTimeout(()=>{setSaved(false);setView("home")},1500);
+  };
+
+  const saveUpdate=()=>{
+    const text=`Work: ${updateForm.workArea}${updateForm.workDetail?` — ${updateForm.workDetail}`:""}\nTraining: ${updateForm.trainingStatus}${updateForm.trainingDetail?` — ${updateForm.trainingDetail}`:""}\nBlockers: ${updateForm.hasBlocker==="Yes"?updateForm.blockerDetail:"None"}\nNext week: ${updateForm.nextWeekPlan}\nGoal progress: ${updateForm.goalProgress}`;
+    const newUpdate={date:new Date().toISOString().slice(0,10),text};
+    const updated={...intern, weeklyUpdates:[...(intern.weeklyUpdates||[]),newUpdate], goalStatus:updateForm.goalProgress};
+    onSave(updated);
+    setUpdateSaved(true); setTimeout(()=>{setUpdateSaved(false);setView("home")},1500);
+  };
+
+  const SF=({label,value,onChange,options,placeholder})=><div style={{marginBottom:14}}>
+    <label style={{fontSize:11,fontWeight:600,color:"#555",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.04em"}}>{label}</label>
+    <select value={value} onChange={e=>onChange(e.target.value)} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #E6E6E6",fontSize:13,background:"#fff"}}>
+      <option value="">— Select —</option>
+      {options.map(o=><option key={o} value={o}>{o}</option>)}
+    </select>
+  </div>;
+
+  const TF=({label,value,onChange,placeholder,maxLen,rows})=><div style={{marginBottom:14}}>
+    <label style={{fontSize:11,fontWeight:600,color:"#555",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.04em"}}>{label}{maxLen&&<span style={{fontSize:10,color:"#aaa",marginLeft:6}}>(max {maxLen} chars)</span>}</label>
+    {rows?<textarea value={value} onChange={e=>onChange(e.target.value.slice(0,maxLen||9999))} rows={rows} placeholder={placeholder} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #E6E6E6",fontSize:13,resize:"vertical",boxSizing:"border-box"}}/>
+    :<input type="text" value={value} onChange={e=>onChange(e.target.value.slice(0,maxLen||9999))} placeholder={placeholder} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #E6E6E6",fontSize:13,boxSizing:"border-box"}}/>}
+  </div>;
+
+  const DF=({label,value,onChange})=><div style={{marginBottom:14}}>
+    <label style={{fontSize:11,fontWeight:600,color:"#555",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.04em"}}>{label}</label>
+    <input type="date" value={value} onChange={e=>onChange(e.target.value)} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #E6E6E6",fontSize:13,boxSizing:"border-box"}}/>
+  </div>;
+
+  return <div style={{minHeight:"100vh",background:"#F5F5F5"}}>
+    {/* Header */}
+    <div style={{background:"#282728",padding:"14px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div style={{display:"flex",alignItems:"center",gap:12}}>
+        <div style={{width:36,height:36,borderRadius:"50%",background:"#86BC25",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:700,color:"#fff"}}>{intern.name.charAt(0)}</div>
+        <div>
+          <div style={{color:"#fff",fontSize:15,fontWeight:700}}>{intern.name}</div>
+          <div style={{color:"#A0A0A0",fontSize:11}}>{intern.assignment||"Awaiting Placement"} · {intern.location}</div>
+        </div>
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <div style={{fontSize:11,color:"#86EB22",fontWeight:600}}>AI & Data Intern Portal</div>
+        <button onClick={onLogout} style={{padding:"5px 12px",background:"transparent",border:"1px solid #DA291C",borderRadius:6,fontSize:11,color:"#DA291C",cursor:"pointer"}}>Sign Out</button>
+      </div>
+    </div>
+
+    {/* Nav tabs */}
+    <div style={{background:"#fff",borderBottom:"1px solid #E6E6E6",display:"flex",overflowX:"auto"}}>
+      {[{id:"home",icon:"🏠",label:"My Dashboard"},{id:"goal",icon:"🎯",label:"My Goals"},{id:"update",icon:"📝",label:"Submit Update"},{id:"history",icon:"📋",label:"Update History"}].map(t=><button key={t.id} onClick={()=>setView(t.id)} style={{padding:"14px 20px",fontSize:13,fontWeight:view===t.id?700:400,color:view===t.id?"#282728":"#888",background:"none",border:"none",borderBottom:view===t.id?"3px solid #86BC25":"3px solid transparent",cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}><span>{t.icon}</span>{t.label}{t.id==="update"&&updateDue&&<span style={{background:"#DA291C",color:"#fff",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:700,marginLeft:4}}>DUE</span>}</button>)}
+    </div>
+
+    <div style={{maxWidth:800,margin:"0 auto",padding:"24px 20px"}}>
+
+    {/* HOME */}
+    {view==="home"&&<div>
+      {/* Welcome */}
+      <div style={{background:"linear-gradient(135deg,#282728,#3a3a3a)",borderRadius:12,padding:"24px 28px",marginBottom:20,color:"#fff"}}>
+        <div style={{fontSize:11,color:"#86EB22",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Welcome back</div>
+        <div style={{fontSize:22,fontWeight:700,marginBottom:4}}>Hi, {intern.name.split(" ")[0]} 👋</div>
+        <div style={{fontSize:13,color:"#A0A0A0"}}>{new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+        {updateDue&&<div style={{marginTop:14,padding:"10px 14px",background:"rgba(218,41,28,0.2)",borderRadius:8,border:"1px solid rgba(218,41,28,0.4)",fontSize:12,color:"#FFB3AE"}}>⏰ Your weekly update is due! Last submitted: {lastUpdate?lastUpdate.date:"Never"}. <button onClick={()=>setView("update")} style={{background:"none",border:"none",color:"#FFB3AE",textDecoration:"underline",cursor:"pointer",fontSize:12}}>Submit now →</button></div>}
+      </div>
+
+      {/* Progress cards */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:12,marginBottom:20}}>
+        {[
+          {l:"Internship Progress",v:`${progress}%`,sub:`${fmtDate(intern.startDate)} → ${fmtDate(intern.endDate)}`,c:"#86BC25"},
+          {l:"Days Remaining",v:d!==null?(d>0?`${d} days`:"Ended"):"—",sub:d>0&&d<=14?"⚠ Ending soon":"",c:d!==null&&d<=14&&d>0?"#DA291C":"#282728"},
+          {l:"Goal Status",v:intern.goalStatus||"Not Set",sub:intern.goal?"Goal defined":"⚠ No goal set",c:intern.goalStatus==="On Track"?"#86BC25":intern.goalStatus==="At Risk"?"#E8A317":"#555"},
+          {l:"Weekly Updates",v:(intern.weeklyUpdates||[]).length,sub:lastUpdate?`Last: ${lastUpdate.date}`:"None yet",c:"#00A3E0"},
+        ].map((k,i)=><div key={i} style={{background:"#fff",borderRadius:10,padding:"16px 18px",borderTop:`4px solid ${k.c}`,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+          <div style={{fontSize:10,color:"#888",fontWeight:600,textTransform:"uppercase",marginBottom:4}}>{k.l}</div>
+          <div style={{fontSize:22,fontWeight:700,color:"#282728"}}>{k.v}</div>
+          {k.sub&&<div style={{fontSize:10,color:"#888",marginTop:2}}>{k.sub}</div>}
+        </div>)}
+      </div>
+
+      {/* Progress bar */}
+      <div style={{background:"#fff",borderRadius:10,padding:"18px 20px",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:12,fontWeight:600,marginBottom:8}}><span>Internship Timeline</span><span style={{color:"#86BC25"}}>{progress}% complete</span></div>
+        <PB p={progress} h={10}/>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#888",marginTop:4}}><span>{fmtDate(intern.startDate)}</span><span>{fmtDate(intern.endDate)}</span></div>
+      </div>
+
+      {/* Quick info */}
+      <div style={{background:"#fff",borderRadius:10,padding:"18px 20px",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+        <div style={{fontSize:14,fontWeight:700,marginBottom:12}}>My Details</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          {[{l:"Assignment",v:intern.assignment||"Awaiting placement"},{l:"Practice",v:intern.practice||"AI & Data"},{l:"Location",v:intern.location||"—"},{l:"Mentor",v:intern.mentor||"Not yet assigned"},{l:"Conversion Rec.",v:intern.conversionRec||"TBD"},{l:"Readiness",v:intern.readiness?`${intern.readiness}/5`:"—"}].map((x,i)=><div key={i} style={{padding:"10px 12px",background:"#F9F9F9",borderRadius:8}}>
+            <div style={{fontSize:10,color:"#888",textTransform:"uppercase",fontWeight:600}}>{x.l}</div>
+            <div style={{fontSize:13,fontWeight:600,marginTop:2}}>{x.v}</div>
+          </div>)}
+        </div>
+        {intern.feedback&&<div style={{marginTop:12,padding:14,background:"#E8F5E0",borderRadius:8,borderLeft:"3px solid #86BC25"}}><div style={{fontSize:11,fontWeight:600,color:"#276221",marginBottom:4}}>PROGRAM MANAGER FEEDBACK</div><div style={{fontSize:13,color:"#282728",lineHeight:1.5}}>{intern.feedback}</div></div>}
+      </div>
+    </div>}
+
+    {/* GOAL FORM */}
+    {view==="goal"&&<div>
+      <div style={{background:"#fff",borderRadius:12,padding:"24px",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+        <div style={{fontSize:16,fontWeight:700,marginBottom:4}}>🎯 My Internship Goal</div>
+        <div style={{fontSize:12,color:"#888",marginBottom:20}}>Define your primary goal for this internship. Be specific — what will you achieve, and by when?</div>
+
+        {saved&&<div style={{padding:"12px 16px",background:"#E8F5E0",borderRadius:8,marginBottom:16,fontSize:13,color:"#276221",fontWeight:600}}>✅ Goal saved successfully!</div>}
+
+        <SF label="Goal Status" value={goalForm.goalStatus} onChange={v=>setGoalForm({...goalForm,goalStatus:v})} options={["Not Set","On Track","At Risk","Met","Not Met"]}/>
+
+        <TF label="Primary Goal — What will you achieve this internship?" value={goalForm.primaryGoal} onChange={v=>setGoalForm({...goalForm,primaryGoal:v})} placeholder="e.g. Deliver a governed healthcare ontology framework with rationalized domains and a coverage tracking mechanism that the client can operationalize." rows={4} maxLen={500}/>
+
+        <div style={{padding:"12px 16px",background:"#E3F2FD",borderRadius:8,marginBottom:14,fontSize:12,color:"#005587"}}>💡 Break your goal into 2 key milestones below. This helps your mentor and program manager track your progress.</div>
+
+        <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:12,alignItems:"end"}}>
+          <TF label="Milestone 1 — First key deliverable" value={goalForm.milestone1} onChange={v=>setGoalForm({...goalForm,milestone1:v})} placeholder="e.g. Complete domain rationalization for 3 core entities" maxLen={200}/>
+          <DF label="Due by" value={goalForm.milestone1Due} onChange={v=>setGoalForm({...goalForm,milestone1Due:v})}/>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:12,alignItems:"end"}}>
+          <TF label="Milestone 2 — Second key deliverable" value={goalForm.milestone2} onChange={v=>setGoalForm({...goalForm,milestone2:v})} placeholder="e.g. Present governance-aligned semantic model to client stakeholders" maxLen={200}/>
+          <DF label="Due by" value={goalForm.milestone2Due} onChange={v=>setGoalForm({...goalForm,milestone2Due:v})}/>
+        </div>
+
+        <SF label="Success looks like..." value={goalForm.successLooks} onChange={v=>setGoalForm({...goalForm,successLooks:v})} options={["Delivered working code / model to client","Completed assigned certification","Presented to client stakeholders","Completed full module / analysis","Received positive PM feedback","Other"]}/>
+
+        <button onClick={saveGoal} style={{width:"100%",padding:"12px",background:"#86BC25",color:"#fff",border:"none",borderRadius:8,fontSize:14,fontWeight:700,cursor:"pointer",marginTop:8}}>Save My Goal ✓</button>
+      </div>
+
+      {/* Current goal preview */}
+      {intern.goal&&<div style={{background:"#fff",borderRadius:12,padding:"20px 24px",boxShadow:"0 1px 4px rgba(0,0,0,0.06)",marginTop:16}}>
+        <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>Current Saved Goal</div>
+        <div style={{fontSize:13,color:"#282728",lineHeight:1.7,whiteSpace:"pre-wrap"}}>{intern.goal}</div>
+        <div style={{marginTop:8}}><GB s={intern.goalStatus}/></div>
+      </div>}
+    </div>}
+
+    {/* WEEKLY UPDATE FORM */}
+    {view==="update"&&<div>
+      <div style={{background:"#fff",borderRadius:12,padding:"24px",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+        <div style={{fontSize:16,fontWeight:700,marginBottom:4}}>📝 Weekly Status Update</div>
+        <div style={{fontSize:12,color:"#888",marginBottom:6}}>Submit your update for the week of {new Date().toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</div>
+        {lastUpdate&&<div style={{fontSize:11,color:"#555",marginBottom:20}}>Last update submitted: <b>{lastUpdate.date}</b> ({daysSince} days ago)</div>}
+
+        {updateSaved&&<div style={{padding:"12px 16px",background:"#E8F5E0",borderRadius:8,marginBottom:16,fontSize:13,color:"#276221",fontWeight:600}}>✅ Update submitted successfully! Thank you.</div>}
+
+        <SF label="1. What area did you primarily work on this week?" value={updateForm.workArea} onChange={v=>setUpdateForm({...updateForm,workArea:v})}
+          options={["Data Pipeline / Engineering","Ontology / Data Modelling","Testing & QA","Client Meetings / Workshops","Documentation","Training & Learning","GenAI / LLM Development","Dashboards / Reporting","Other"]}/>
+        <TF label="Briefly describe what you worked on" value={updateForm.workDetail} onChange={v=>setUpdateForm({...updateForm,workDetail:v})} placeholder="e.g. Completed mapping of 15 ontology concepts and reviewed with the team lead" rows={2} maxLen={300}/>
+
+        <SF label="2. Training / Certification progress this week" value={updateForm.trainingStatus} onChange={v=>setUpdateForm({...updateForm,trainingStatus:v})}
+          options={["Completed a module / course","Completed a certification exam","Currently in progress","Stuck — need guidance","Didn't get time this week","Not applicable right now"]}/>
+        <TF label="Which course or certification?" value={updateForm.trainingDetail} onChange={v=>setUpdateForm({...updateForm,trainingDetail:v})} placeholder="e.g. AWS Cloud Practitioner — Module 4 completed" maxLen={150}/>
+
+        <SF label="3. Did you face any blockers or challenges?" value={updateForm.hasBlocker} onChange={v=>setUpdateForm({...updateForm,hasBlocker:v})} options={["No","Yes"]}/>
+        {updateForm.hasBlocker==="Yes"&&<TF label="Describe the blocker" value={updateForm.blockerDetail} onChange={v=>setUpdateForm({...updateForm,blockerDetail:v})} placeholder="e.g. Waiting on access to client Snowflake environment" rows={2} maxLen={250}/>}
+
+        <TF label="4. What is your plan for next week?" value={updateForm.nextWeekPlan} onChange={v=>setUpdateForm({...updateForm,nextWeekPlan:v})} placeholder="e.g. Complete domain review for remaining 10 entities, attend stakeholder review session" rows={2} maxLen={300}/>
+
+        <SF label="5. How is your goal progressing?" value={updateForm.goalProgress} onChange={v=>setUpdateForm({...updateForm,goalProgress:v})} options={["On Track","Slightly Behind","At Risk","Completed","Not Started Yet"]}/>
+
+        <button onClick={saveUpdate} disabled={!updateForm.workArea||!updateForm.trainingStatus||!updateForm.nextWeekPlan||!updateForm.goalProgress} style={{width:"100%",padding:"12px",background:(!updateForm.workArea||!updateForm.trainingStatus||!updateForm.nextWeekPlan||!updateForm.goalProgress)?"#ccc":"#86BC25",color:"#fff",border:"none",borderRadius:8,fontSize:14,fontWeight:700,cursor:(!updateForm.workArea||!updateForm.trainingStatus||!updateForm.nextWeekPlan||!updateForm.goalProgress)?"not-allowed":"pointer",marginTop:8}}>Submit Weekly Update ✓</button>
+        {(!updateForm.workArea||!updateForm.trainingStatus||!updateForm.nextWeekPlan||!updateForm.goalProgress)&&<div style={{textAlign:"center",fontSize:11,color:"#888",marginTop:6}}>Complete all required fields to submit</div>}
+      </div>
+    </div>}
+
+    {/* HISTORY */}
+    {view==="history"&&<div>
+      <div style={{fontSize:16,fontWeight:700,marginBottom:16}}>📋 My Update History</div>
+      {(intern.weeklyUpdates||[]).length===0?<div style={{background:"#fff",borderRadius:12,padding:40,textAlign:"center",color:"#888",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>No updates submitted yet.<br/><button onClick={()=>setView("update")} style={{marginTop:12,padding:"8px 20px",background:"#86BC25",color:"#fff",border:"none",borderRadius:6,fontSize:13,fontWeight:700,cursor:"pointer"}}>Submit your first update →</button></div>:
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {[...(intern.weeklyUpdates||[])].reverse().map((u,i)=><div key={i} style={{background:"#fff",borderRadius:10,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+          <div style={{padding:"10px 18px",background:"#282728",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{color:"#86EB22",fontWeight:700,fontSize:13}}>Week of {u.date}</span>
+            <span style={{fontSize:11,color:"#A0A0A0"}}>Update #{(intern.weeklyUpdates||[]).length-i}</span>
+          </div>
+          <div style={{padding:"14px 18px",fontSize:13,lineHeight:1.8,whiteSpace:"pre-wrap",color:"#282728"}}>{u.text}</div>
+        </div>)}
+      </div>}
+    </div>}
+
+    </div>
+    <div style={{textAlign:"center",padding:"16px",color:"#ccc",fontSize:10}}>AI & Data Talent Development Program · Deloitte Consulting India Pvt. Ltd. · Confidential</div>
+  </div>;
+};
+
 /* ══════════ ADMIN LOGIN ══════════ */
 const AdminLogin=({onLogin,onClose})=>{
   const [pin,setPin]=useState("");const [err,setErr]=useState("");
@@ -573,6 +822,8 @@ function App(){
   const [loaded,setLoaded]=useState(false);
   const [isAdmin,setIsAdmin]=useState(false);
   const [showLogin,setShowLogin]=useState(false);
+  const [showInternLogin,setShowInternLogin]=useState(false);
+  const [internUser,setInternUser]=useState(null); // logged-in intern object
   const [showChangePin,setShowChangePin]=useState(false);
   const [manageOpt,setManageOpt]=useState(null); // {key,label}
   const [showImport,setShowImport]=useState(null); // "roster"|"goals"|null
@@ -584,6 +835,14 @@ function App(){
   const toggleSort=(field)=>setSort(prev=>({field,asc:prev.field===field?!prev.asc:true}));
 
   useEffect(()=>{try{if(localStorage.getItem(AUTH_KEY)==="admin")setIsAdmin(true)}catch(e){}},[]);
+  // Restore intern session
+  useEffect(()=>{
+    if(!loaded)return;
+    try{
+      const em=localStorage.getItem("intern-auth-email");
+      if(em){const match=interns.find(i=>(i.email||"").toLowerCase()===em.toLowerCase());if(match)setInternUser(match);}
+    }catch(e){}
+  },[loaded]);
   useEffect(()=>{(async()=>{
     let localInterns=DEFAULT_INTERNS;
     let localOptions=DEFAULT_OPTIONS;
@@ -673,6 +932,8 @@ function App(){
   },[loaded,interns,options]);
 
   const save=u=>{if(!isAdmin)return;setInterns(p=>p.map(i=>i.id===u.id?u:i));setSelId(null)};
+  const saveInternSelf=u=>{setInterns(p=>p.map(i=>i.id===u.id?u:i));setInternUser(u)};
+  const internLogout=()=>{setInternUser(null);try{localStorage.removeItem("intern-auth-email")}catch(e){}};
   const deleteIntern=(id)=>{if(!isAdmin)return;setInterns(p=>p.filter(i=>i.id!==id));setSelId(null)};
   const add=n=>{if(!isAdmin)return;setInterns(p=>[...p,n]);setShowAdd(false)};
   const reset=()=>{if(!isAdmin)return;if(confirm("Reset ALL data and options?")){setInterns(DEFAULT_INTERNS);setOptions(DEFAULT_OPTIONS);localStorage.removeItem(SK);localStorage.removeItem(OK)}};
@@ -748,6 +1009,13 @@ function App(){
 
   if(!loaded)return <div style={{display:"flex",justifyContent:"center",alignItems:"center",height:"100vh",color:"#555"}}>Loading...</div>;
 
+  // If an intern is logged in, show their personal dashboard only
+  if(internUser){
+    // Keep internUser in sync with latest interns data
+    const freshIntern=interns.find(i=>i.id===internUser.id)||internUser;
+    return <InternDashboard intern={freshIntern} onSave={saveInternSelf} onLogout={internLogout}/>;
+  }
+
   return <div style={{display:"flex",flexDirection:"column"}}>
     <div style={{height:4,background:"linear-gradient(90deg,#86BC25,#86EB22,#3FC3EC)",flexShrink:0}}/>
     {/* Header */}
@@ -774,6 +1042,7 @@ function App(){
         </>:<>
           <button onClick={()=>window.print()} style={{padding:"5px 12px",background:"transparent",border:"1px solid #555",borderRadius:6,fontSize:11,color:"#E6E6E6",cursor:"pointer"}}>Print</button>
           <button onClick={()=>setShowLogin(true)} style={{padding:"5px 14px",background:"#86BC25",color:"#fff",border:"none",borderRadius:6,fontSize:11,fontWeight:700,cursor:"pointer"}}>🔐 Manager Login</button>
+          <button onClick={()=>setShowInternLogin(true)} style={{padding:"5px 14px",background:"#00A3E0",color:"#fff",border:"none",borderRadius:6,fontSize:11,fontWeight:700,cursor:"pointer"}}>👤 Intern Login</button>
         </>}
       </div>
     </div>
@@ -1212,6 +1481,7 @@ function App(){
     {sel&&<InternModal intern={sel} onClose={()=>setSelId(null)} onSave={save} onDelete={deleteIntern} isAdmin={isAdmin} options={options}/>}
     {isAdmin&&showAdd&&<AddModal onClose={()=>setShowAdd(false)} onAdd={add} nid={nid} options={options}/>}
     {showLogin&&<AdminLogin onLogin={()=>{setIsAdmin(true);setShowLogin(false)}} onClose={()=>setShowLogin(false)}/>}
+    {showInternLogin&&<InternLogin interns={interns} onLogin={i=>{setInternUser(i);setShowInternLogin(false)}} onClose={()=>setShowInternLogin(false)}/>}
     {showChangePin&&<ChangePinModal onClose={()=>setShowChangePin(false)}/>}
     {manageOpt&&<ManageOptionsModal optKey={manageOpt.key} label={manageOpt.label} options={options} onSave={saveOption} onClose={()=>setManageOpt(null)}/>}
     {showImport&&<CSVImportModal mode={showImport} onImport={handleCSVImport} onClose={()=>setShowImport(null)} options={options}/>}
