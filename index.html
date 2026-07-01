@@ -10,6 +10,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;}
   body{font-family:'Open Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F5F5F5;color:#282728;zoom:0.85;}
@@ -38,7 +39,7 @@ const PROGRAM_MANAGER_EMAILS=[
   "navyar@deloitte.com",
 ];
 // Force reset stale localStorage if version mismatch
-(()=>{try{if(localStorage.getItem("portal-data-version")!==DATA_VERSION){localStorage.removeItem(SK);localStorage.removeItem(OK);localStorage.removeItem("jsonbin-bin-id");localStorage.setItem("portal-data-version",DATA_VERSION)}}catch(e){}})();
+(()=>{try{if(localStorage.getItem("portal-data-version")!==DATA_VERSION){localStorage.removeItem(SK);localStorage.removeItem(OK);localStorage.removeItem("jsonbin-bin-id");localStorage.removeItem("deloitte-intern-db-v1");localStorage.setItem("portal-data-version",DATA_VERSION)}}catch(e){}})();
 
 /* ══════════ SHARED STORAGE CONFIG (Firebase) ══════════ */
 const CLOUD_SYNC={
@@ -118,6 +119,45 @@ const DEFAULT_INTERNS = [
   {id:15,name:"Anushka Mookerjea",email:"anmookerjea@deloitte.com",location:"Hyderabad",startDate:"2026-05-18",endDate:"2026-08-14",assignment:"GS Wealth",practice:"AI & Data",rag:"Amber",conversionRec:"TBD",mentor:"Pavan Konduru",reportingManager:"",buddy:"",onboarding:"Y",midFeedback:"",trainingPct:0,readiness:0,lastTouchpoint:"",status:"Active — On Project",goal:"",goalDueDate:"",goalStatus:"On Track",feedback:"",weeklyUpdates:[],resumeLink:"",projectWork:"",exitFeedback:"",outlook:"Developing",college:"",degree:"",primarySkill:"",secondarySkill:"",toolsKnown:"",careerInterest:"",roleOnProject:""},
   {id:16,name:"Rachit Sethi",email:"racsethi@deloitte.com",location:"Gurgaon",startDate:"2026-06-01",endDate:"2026-07-31",assignment:"Ascend for Operate",practice:"AI & Data",rag:"Amber",conversionRec:"TBD",mentor:"Sameer, P R Sai",reportingManager:"",buddy:"",onboarding:"Y",midFeedback:"",trainingPct:0,readiness:0,lastTouchpoint:"",status:"Active — On Project",goal:"",goalDueDate:"",goalStatus:"TBD",feedback:"",weeklyUpdates:[],resumeLink:"",projectWork:"",exitFeedback:"",outlook:"Under Evaluation",college:"",degree:"",primarySkill:"",secondarySkill:"",toolsKnown:"",careerInterest:"",roleOnProject:""},
 ];
+
+/* ══════════ SQLite OFFLINE STORAGE (sql.js) ══════════ */
+/* Interim local persistence + portable .db handover, mirroring the CRBG PMO
+   Dashboard. The intern record schema drifts (fields get added over time), so
+   instead of a rigid columnar table we store the `interns` array and `options`
+   config as JSON in a meta(key,val) table — drift-proof and simple. When
+   Firebase cloud sync is configured it takes precedence; this is the local
+   fallback and the source for the .db export used to hand the data over. */
+const DB_SK="deloitte-intern-db-v1";
+let _db=null;
+const _sqlCfg={locateFile:f=>`https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${f}`};
+async function openInternDB(){
+  const SQL=await initSqlJs(_sqlCfg);
+  const saved=localStorage.getItem(DB_SK);
+  if(saved){
+    const bin=atob(saved);const buf=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++)buf[i]=bin.charCodeAt(i);
+    _db=new SQL.Database(buf);
+  }else{
+    _db=new SQL.Database();
+    _db.run("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, val TEXT)");
+    // migrate existing localStorage JSON if present, else seed defaults
+    let ints=DEFAULT_INTERNS,opts=DEFAULT_OPTIONS;
+    try{const s=localStorage.getItem(SK),o=localStorage.getItem(OK);if(s)ints=JSON.parse(s);if(o)opts=JSON.parse(o);}catch(e){}
+    _dbSet("interns",ints);_dbSet("options",opts);
+    _persistInternDB();
+  }
+  return _db;
+}
+function _persistInternDB(){
+  const raw=_db.export();let b64="";const chunk=8192;
+  for(let i=0;i<raw.length;i+=chunk)b64+=String.fromCharCode.apply(null,raw.subarray(i,i+chunk));
+  localStorage.setItem(DB_SK,btoa(b64));
+}
+function _dbSet(key,obj){_db.run("INSERT OR REPLACE INTO meta (key,val) VALUES (?,?)",[key,JSON.stringify(obj)]);}
+function _dbGet(key,fallback){try{const r=_db.exec("SELECT val FROM meta WHERE key=?",[key]);if(r.length&&r[0].values.length)return JSON.parse(r[0].values[0][0]);}catch(e){}return fallback;}
+function saveInternDB(interns,options){if(!_db)return;_dbSet("interns",interns);_dbSet("options",options);_persistInternDB();}
+function exportInternDB(){if(!_db)return;const blob=new Blob([_db.export()],{type:"application/octet-stream"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="Intern_Portal_Data.db";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1500);}
+function importInternDBFile(file,onDone){const r=new FileReader();r.onload=async e=>{const SQL=await initSqlJs(_sqlCfg);_db=new SQL.Database(new Uint8Array(e.target.result));_persistInternDB();onDone(_dbGet("interns",DEFAULT_INTERNS),_dbGet("options",DEFAULT_OPTIONS));};r.readAsArrayBuffer(file);}
 
 const FAQ_DATA=[
   {q:"Who is my primary point of contact?",a:"Pavan Konduru (pavkonduru@deloitte.com) is the program coordinator."},
@@ -921,9 +961,9 @@ function App(){
     let localInterns=DEFAULT_INTERNS;
     let localOptions=DEFAULT_OPTIONS;
     try{
-      const s=localStorage.getItem(SK),o=localStorage.getItem(OK);
-      localInterns=s?JSON.parse(s):DEFAULT_INTERNS;
-      localOptions=o?JSON.parse(o):DEFAULT_OPTIONS;
+      await openInternDB();
+      localInterns=_dbGet("interns",DEFAULT_INTERNS);
+      localOptions=_dbGet("options",DEFAULT_OPTIONS);
     }catch(e){
       localInterns=DEFAULT_INTERNS;
       localOptions=DEFAULT_OPTIONS;
@@ -964,8 +1004,7 @@ function App(){
   useEffect(()=>{
     if(!loaded||!hydratedRef.current)return;
     try{
-      localStorage.setItem(SK,JSON.stringify(interns));
-      localStorage.setItem(OK,JSON.stringify(options));
+      saveInternDB(interns,options);
     }catch(e){}
 
     if(isCloudEnabled()){
@@ -1014,6 +1053,7 @@ function App(){
   const logout=()=>{setIsAdmin(false);try{localStorage.removeItem(AUTH_KEY)}catch(e){}};
   const exportJSON=()=>{const b=new Blob([JSON.stringify({interns,options},null,2)],{type:"application/json"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download="intern_portal_data.json";a.click();URL.revokeObjectURL(u)};
   const importJSON=()=>{const i=document.createElement("input");i.type="file";i.accept=".json";i.onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{try{const d=JSON.parse(ev.target.result);if(d.interns&&Array.isArray(d.interns)){setInterns(d.interns);if(d.options)setOptions(d.options);alert("Imported!")}else if(Array.isArray(d)){setInterns(d);alert("Imported!")}else alert("Invalid format.")}catch(err){alert("Error.")}};r.readAsText(f)};i.click()};
+  const handleImportDB=()=>{const i=document.createElement("input");i.type="file";i.accept=".db";i.onchange=e=>{const f=e.target.files[0];if(!f)return;importInternDBFile(f,(ints,opts)=>{setInterns(ints);setOptions(opts);alert("Database loaded!")})};i.click()};
   const exportCSV=()=>{const h="Name,Email,Location,Start Date,End Date,Assignment,Practice,RAG,Status,Mentor,Conversion Rec,Onboarding,Mid-Feedback,Training %,Readiness,Goal,Goal Due Date,Goal Status,Feedback\n";const rows=interns.map(i=>[i.name,i.email,i.location,i.startDate,i.endDate,i.assignment,i.practice,i.rag,i.status,i.mentor,i.conversionRec,i.onboarding,i.midFeedback,i.trainingPct,i.readiness,i.goal,i.goalDueDate,i.goalStatus,i.feedback].map(v=>`"${(v+"").replace(/"/g,'""')}"`).join(",")).join("\n");const b=new Blob([h+rows],{type:"text/csv"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download="intern_data.csv";a.click();URL.revokeObjectURL(u)};
   const saveOption=(key,items)=>{setOptions(p=>({...p,[key]:items}))};
 
@@ -1115,6 +1155,8 @@ function App(){
           <button onClick={exportJSON} style={{padding:"5px 12px",background:"transparent",border:"1px solid #555",borderRadius:6,fontSize:11,color:"#E6E6E6",cursor:"pointer"}}>Export</button>
           <button onClick={exportCSV} style={{padding:"5px 12px",background:"transparent",border:"1px solid #555",borderRadius:6,fontSize:11,color:"#E6E6E6",cursor:"pointer"}}>CSV</button>
           <button onClick={importJSON} style={{padding:"5px 12px",background:"transparent",border:"1px solid #555",borderRadius:6,fontSize:11,color:"#E6E6E6",cursor:"pointer"}}>Import JSON</button>
+          <button onClick={exportInternDB} title="Download SQLite .db file for handover" style={{padding:"5px 12px",background:"transparent",border:"1px solid #86BC25",borderRadius:6,fontSize:11,color:"#86BC25",cursor:"pointer"}}>💾 Export DB</button>
+          <button onClick={handleImportDB} title="Load a .db file from another user" style={{padding:"5px 12px",background:"transparent",border:"1px solid #00A3E0",borderRadius:6,fontSize:11,color:"#00A3E0",cursor:"pointer"}}>📂 Load DB</button>
           <button onClick={()=>window.print()} style={{padding:"5px 12px",background:"transparent",border:"1px solid #555",borderRadius:6,fontSize:11,color:"#E6E6E6",cursor:"pointer"}}>Print</button>
           <button onClick={()=>setShowChangePin(true)} style={{padding:"5px 12px",background:"transparent",border:"1px solid #555",borderRadius:6,fontSize:11,color:"#E6E6E6",cursor:"pointer"}}>🔑</button>
           <button onClick={()=>setShowInternLogin(true)} style={{padding:"5px 14px",background:"#00A3E0",color:"#fff",border:"none",borderRadius:6,fontSize:11,fontWeight:700,cursor:"pointer"}}>👤 Intern View</button>
