@@ -85,6 +85,16 @@ const saveCloudPayload=async(payload)=>{
   await fbDb.ref("portalData/v1").set(payload);
 };
 
+const normalizedStatus=value=>String(value||"").trim().toLowerCase();
+const isConvertedIntern=intern=>normalizedStatus(intern.status)==="converted to fte"
+  ||String(intern.conversionRec||"").trim().toLowerCase()==="yes"
+  ||normalizedStatus(intern.outlook)==="converted";
+const isExitedIntern=intern=>["rolled off","resigned","exited","tenure completed"].includes(normalizedStatus(intern.status))
+  ||normalizedStatus(intern.outlook)==="exited";
+const isActiveIntern=intern=>!isConvertedIntern(intern)
+  &&!isExitedIntern(intern)
+  &&normalizedStatus(intern.status)!=="data pending";
+
 /* ══════════ MANAGED OPTIONS DEFAULTS ══════════ */
 const DEFAULT_OPTIONS = {
   mentor:["Anil Tadepalli","Pavan Konduru","Sameer, P R Sai","Sannidhi Rajamane","Kumar Mohapatra, Rohit","V S Dheeraj Murthy, Kanchi","Sachin Jain","Sircar, Prosenjit"],
@@ -1081,7 +1091,7 @@ function App(){
     }
   };
 
-  const total=interns.length,active=interns.filter(i=>!["Rolled off","Converted to FTE","Data pending"].includes(i.status)).length,converted=interns.filter(i=>i.conversionRec==="Yes").length,pipeline=interns.filter(i=>i.conversionRec==="Yes (Pending)").length,unplaced=interns.filter(i=>i.assignment==="Yet to be placed"||i.assignment==="No project assignment"||!i.assignment).length,redRag=interns.filter(i=>i.rag==="Red").length,goalsSet=interns.filter(i=>i.goal&&i.goal.trim()).length;
+  const total=interns.length,active=interns.filter(isActiveIntern).length,converted=interns.filter(isConvertedIntern).length,pipeline=interns.filter(i=>i.conversionRec==="Yes (Pending)").length,unplaced=interns.filter(i=>i.assignment==="Yet to be placed"||i.assignment==="No project assignment"||!i.assignment).length,redRag=interns.filter(i=>i.rag==="Red").length,goalsSet=interns.filter(i=>i.goal&&i.goal.trim()).length;
   const overdue=interns.filter(i=>{if(["Rolled off","Converted to FTE","Data pending"].includes(i.status))return false;const lu=(i.weeklyUpdates||[]);if(lu.length===0)return true;const last=lu[lu.length-1];return Math.ceil((new Date()-new Date(last.date))/864e5)>14}).length;
 
   // Auto-generated recommendations for executive view
@@ -1089,28 +1099,28 @@ function App(){
     const r=[];
     interns.forEach(i=>{
       const d=dr(i.endDate);
-      if(d!==null&&d>0&&d<=14&&i.status!=="Rolled off"&&i.status!=="Converted to FTE"){
+      if(d!==null&&d>0&&d<=14&&isActiveIntern(i)){
         if(i.assignment==="Yet to be placed"||i.assignment==="No project assignment"||!i.assignment)
           r.push({severity:"critical",text:`${i.name} ends in ${d} days with NO project assignment. Recommend immediate escalation to Arnab (RM) for placement or tenure decision.`,intern:i});
         else if(i.conversionRec==="TBD")
           r.push({severity:"critical",text:`${i.name} ends in ${d} days — conversion decision still pending. Request PM feedback and schedule conversion review with Anil.`,intern:i});
         else if(!i.goal||!i.goal.trim())
           r.push({severity:"high",text:`${i.name} ends in ${d} days without a defined goal. Flag to mentor for immediate goal-setting.`,intern:i});
-      } else if(d!==null&&d>14&&d<=30&&i.status!=="Rolled off"&&i.status!=="Converted to FTE"){
+      } else if(d!==null&&d>14&&d<=30&&isActiveIntern(i)){
         if(i.conversionRec==="TBD")
           r.push({severity:"medium",text:`${i.name} ends in ${d} days — begin conversion evaluation. Collect PM feedback this cycle.`,intern:i});
       }
     });
-    if(unplaced>0){const names=interns.filter(i=>(i.assignment==="Yet to be placed"||i.assignment==="No project assignment"||!i.assignment)&&i.status!=="Rolled off"&&i.status!=="Converted to FTE").map(i=>i.name);if(names.length>0&&!r.some(x=>x.severity==="critical"&&x.text.includes("NO project")))r.push({severity:"high",text:`${names.join(", ")} — unplaced. Follow up with Arnab for staffing options.`})}
+    if(unplaced>0){const names=interns.filter(i=>(i.assignment==="Yet to be placed"||i.assignment==="No project assignment"||!i.assignment)&&isActiveIntern(i)).map(i=>i.name);if(names.length>0&&!r.some(x=>x.severity==="critical"&&x.text.includes("NO project")))r.push({severity:"high",text:`${names.join(", ")} — unplaced. Follow up with Arnab for staffing options.`})}
     if(overdue>0)r.push({severity:"medium",text:`${overdue} intern(s) have not submitted a status update in 14+ days. Trigger bi-weekly feedback collection.`});
-    const noGoal=interns.filter(i=>(!i.goal||!i.goal.trim())&&i.status!=="Rolled off"&&i.status!=="Converted to FTE"&&i.status!=="Data pending");
+    const noGoal=interns.filter(i=>!i.goal||!i.goal.trim()).filter(isActiveIntern);
     if(noGoal.length>0)r.push({severity:"medium",text:`${noGoal.map(i=>i.name).join(", ")} — no goals defined. Per Anil's directive, all interns must have planned goals.`});
-    const noMentor=interns.filter(i=>!i.mentor&&i.status!=="Rolled off"&&i.status!=="Converted to FTE"&&i.status!=="Data pending");
+    const noMentor=interns.filter(i=>!i.mentor).filter(isActiveIntern);
     if(noMentor.length>0)r.push({severity:"low",text:`${noMentor.map(i=>i.name).join(", ")} — no mentor assigned. Assign from the program team.`});
     return r.sort((a,b)=>{const o={critical:0,high:1,medium:2,low:3};return (o[a.severity]||4)-(o[b.severity]||4)});
   },[interns,unplaced,overdue]);
 
-  const filtered=useMemo(()=>{let d=filter==="All"?interns:filter==="Active"?interns.filter(i=>i.rag!=="Red"&&i.status!=="Rolled off"&&i.status!=="Converted to FTE"):filter==="Unplaced"?interns.filter(i=>i.assignment==="Yet to be placed"||i.assignment==="No project assignment"||!i.assignment):filter==="At Risk"?interns.filter(i=>i.rag==="Red"||i.rag==="Amber"):interns;if(search.trim()){const s=search.toLowerCase();d=d.filter(i=>(i.name+i.email+i.location+i.assignment+i.mentor).toLowerCase().includes(s))}return d},[interns,filter,search]);
+  const filtered=useMemo(()=>{let d=filter==="All"?interns:filter==="Active"?interns.filter(i=>i.rag!=="Red"&&isActiveIntern(i)):filter==="Unplaced"?interns.filter(i=>i.assignment==="Yet to be placed"||i.assignment==="No project assignment"||!i.assignment):filter==="At Risk"?interns.filter(i=>i.rag==="Red"||i.rag==="Amber"):interns;if(search.trim()){const s=search.toLowerCase();d=d.filter(i=>(i.name+i.email+i.location+i.assignment+i.mentor).toLowerCase().includes(s))}return d},[interns,filter,search]);
 
   const sel=interns.find(i=>i.id===selId);
   const nid=interns.length?Math.max(...interns.map(i=>i.id))+1:1;
@@ -1183,7 +1193,7 @@ function App(){
   const convCandidates=interns.filter(i=>i.conversionRec==="Yes (Pending)");
   const endingSoonAll=interns.filter(i=>{const d=dr(i.endDate);return d!==null&&d>0&&d<=30&&!["Rolled off","Rolled Off","Converted to FTE"].includes(i.status)});
   // Always sort active interns by join date (newest first)
-  const activeForTable=[...interns.filter(i=>!["Rolled off","Rolled Off","Converted to FTE"].includes(i.status))].sort((a,b)=>{const da=a.startDate?new Date(a.startDate):new Date(0);const db=b.startDate?new Date(b.startDate):new Date(0);return db-da});
+  const activeForTable=[...interns.filter(isActiveIntern)].sort((a,b)=>{const da=a.startDate?new Date(a.startDate):new Date(0);const db=b.startDate?new Date(b.startDate):new Date(0);return db-da});
   const exitedInterns=interns.filter(i=>i.status==="Rolled off"||i.status==="Rolled Off"||i.status==="Converted to FTE");
   const recentExits=exitedInterns.filter(i=>{if(!i.endDate)return true;return Math.ceil((new Date()-new Date(i.endDate))/864e5)<=30});
   const olderExits=exitedInterns.filter(i=>{if(!i.endDate)return false;return Math.ceil((new Date()-new Date(i.endDate))/864e5)>30});
@@ -1275,7 +1285,7 @@ function App(){
 
 {/* ═══ PROGRESS & UPDATES (merged timeline + updates + feedback) ═══ */}
 {page==="progress"&&(()=>{
-  const activeInterns=interns.filter(i=>i.status!=="Rolled off"&&i.status!=="Converted to FTE"&&i.status!=="Data pending");
+  const activeInterns=interns.filter(isActiveIntern);
   // Calculate bi-weekly feedback schedule
   const today=new Date();
   const nextBiWeekly=new Date(today);
@@ -1295,7 +1305,7 @@ function App(){
     <Kpi l="Active Interns" v={activeInterns.length} a="#86BC25" i="✦"/>
     <Kpi l="Updates Overdue" v={overdue} a={overdue>0?"#DA291C":"#86BC25"} i={overdue>0?"⚠":"✓"} s="14+ days without update"/>
     <Kpi l="Goals On Track" v={interns.filter(i=>i.goalStatus==="On Track").length} a="#00A3E0" i="🎯"/>
-    <Kpi l="Ending ≤30d" v={interns.filter(i=>{const d=dr(i.endDate);return d!==null&&d>0&&d<=30&&i.status!=="Rolled off"&&i.status!=="Converted to FTE"}).length} a="#E8A317" i="⏰"/>
+    <Kpi l="Ending ≤30d" v={interns.filter(i=>{const d=dr(i.endDate);return d!==null&&d>0&&d<=30&&isActiveIntern(i)}).length} a="#E8A317" i="⏰"/>
   </div>
 
   {/* Feedback Schedule Banner */}
@@ -1516,7 +1526,7 @@ function App(){
 
   {/* Project Leverage Sub-tab */}
   {subTab==="leverage"&&(()=>{
-    const activeInterns=interns.filter(i=>!["Rolled off","Rolled Off","Converted to FTE","Resigned"].includes(i.status));
+    const activeInterns=interns.filter(isActiveIntern);
     const staffedInterns=activeInterns.filter(i=>i.assignment&&i.assignment!=="Yet to be placed"&&i.assignment!=="No project assignment");
     const multiProjectCount=activeInterns.filter(i=>i.status==="Active — Multi-Project").length;
     const leveragePct=activeInterns.length?Math.round((staffedInterns.length/activeInterns.length)*100):0;
